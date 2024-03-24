@@ -5,22 +5,19 @@ from asyncpg import ForeignKeyViolationError
 from fastapi import APIRouter, HTTPException
 from starlette import status
 
-from BASED.repository.task import (
-    DependencyTypeEnum,
-    TaskCreate,
-    TaskStatusEnum,
-)
-from BASED.repository.user import User
+from BASED.repository.task import TaskCreate, TaskStatusEnum
 from BASED.state import app_state
-from BASED.views.dashboard.helpers import get_warnings_with_cross
-from BASED.views.task.helpers import check_dependency_and_add
+from BASED.views.task.helpers import (
+    check_dependency_and_add,
+    parse_dependencies_types_to_task_depends,
+)
 from BASED.views.task.models import (
     ArchiveTaskBody,
-    CustomDependencies,
+    CreateTaskResponse,
     EditTaskBody,
     EditTaskDeadlineBody,
+    EditTaskResponse,
     GetAllTasksResponse,
-    GetTasksDescriptionResponse,
     ListTaskDependency,
     TaskBody,
     TaskDependency,
@@ -32,14 +29,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post(path="/create_task")
+@router.post(path="/create_task", response_model=CreateTaskResponse)
 async def create_task(body: TaskBody):
     try:
-        await app_state.task_repo.create(
+        task = await app_state.task_repo.create(
             task_create_model=TaskCreate(
                 status=TaskStatusEnum.to_do, **dict(body)
             )
         )
+        logger.info("Task created successfully. task_id=%s", task.id)
+
+        dependencies = parse_dependencies_types_to_task_depends(
+            dependencies=body.dependencies, main_task_id=task.id
+        )
+        depend_errors = await check_dependency_and_add(dependencies)
     except ForeignKeyViolationError:
         logger.error(
             "Responsible user not found. responsible_user_id=%s",
@@ -50,12 +53,21 @@ async def create_task(body: TaskBody):
             detail="Responsible user not found.",
         )
 
+    return CreateTaskResponse(
+        created_task_id=task.id, dependency_errors=depend_errors
+    )
 
-@router.put(path="/edit_task")
+
+@router.put(path="/edit_task", response_model=EditTaskResponse)
 async def edit_task(body: EditTaskBody):
     try:
         task = await app_state.task_repo.update_task_data(
-            task_id=body.task_id, **dict(body.task_data)
+            task_id=body.task_id,
+            title=body.task_data.title,
+            description=body.task_data.description,
+            deadline=body.task_data.deadline,
+            responsible_user_id=body.task_data.responsible_user_id,
+            days_for_completion=body.task_data.days_for_completion,
         )
     except ForeignKeyViolationError:
         logger.error(
@@ -72,6 +84,13 @@ async def edit_task(body: EditTaskBody):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Task not found.",
         )
+
+    dependencies = parse_dependencies_types_to_task_depends(
+        dependencies=body.task_data.dependencies, main_task_id=task.id
+    )
+    depend_errors = await check_dependency_and_add(dependencies)
+
+    return EditTaskResponse(dependency_errors=depend_errors)
 
 
 @router.put(path="/update_task_status")
@@ -183,48 +202,3 @@ async def edit_task_deadline(body: EditTaskDeadlineBody):
 async def get_all_tasks():
     tasks = await app_state.task_repo.get_all_short_tasks()
     return GetAllTasksResponse(tasks=tasks)
-
-
-@router.get(
-    path="/task_description",
-)
-async def get_task_description(task_id: int):
-    task = await app_state.task_repo.get_by_id(task_id)
-    if task.responsible_user_id:
-        responsible = await app_state.user_repo.get_by_id(
-            id_=task.responsible_user_id
-        )
-    else:
-        responsible = User(id=0, name=None)
-    warnings = await get_warnings_with_cross(task)
-    logger.info(warnings)
-    task_depends = await app_state.task_repo.get_task_depends(id_=task_id)
-    dependencies = list()
-    for i in task_depends:
-        i_task = await app_state.task_repo.get_by_id(i.depends_task_id)
-        Cust_dep = CustomDependencies(
-            warnings=await get_warnings_with_cross(i_task),
-            **dict(i_task),
-            type=DependencyTypeEnum.dependent_for,
-        )
-        dependencies.append(Cust_dep)
-    task_depends_off = await app_state.task_repo.get_tasks_dependent_of(
-        dependent_task_id=task_id
-    )
-
-    for i in task_depends_off:
-        i_task = await app_state.task_repo.get_by_id(i.task_id)
-        Cust_dep = CustomDependencies(
-            warnings=await get_warnings_with_cross(i_task),
-            **dict(i_task),
-            type=DependencyTypeEnum.dependent_for,
-        )
-        dependencies.append(Cust_dep)
-
-    return GetTasksDescriptionResponse(
-        **dict(task),
-        created_at=task.created_timestamp,
-        responsible=responsible,
-        warnings=warnings,
-        dependencies=dependencies,
-    )

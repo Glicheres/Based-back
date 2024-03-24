@@ -1,15 +1,8 @@
-from datetime import date, datetime
+from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from BASED.repository.task import (
-    DependencyTypeEnum,
-    ShortTask,
-    Task,
-    TaskStatusEnum,
-)
-from BASED.repository.user import User
-from BASED.views.dashboard.models import WarningModel
+from BASED.repository.task import DependencyTypeEnum, ShortTask, TaskStatusEnum
 
 
 class TaskDependency(BaseModel):
@@ -65,19 +58,3 @@ class EditTaskDeadlineBody(BaseModel):
 
 class GetAllTasksResponse(BaseModel):
     tasks: list[ShortTask]
-
-
-class CustomDependencies(BaseModel):
-    type: DependencyTypeEnum
-    title: str
-    status: TaskStatusEnum
-    id: int
-    warnings: list[WarningModel]
-
-
-class GetTasksDescriptionResponse(Task):
-    created_timestamp: datetime = Field(alias="created_at")
-    responsible_user_id: int = Field(exclude=True)
-    responsible: User  # User
-    warnings: list[WarningModel]  # Warning
-    dependencies: list[CustomDependencies]

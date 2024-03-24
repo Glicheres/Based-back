@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang=en>
+
+<head>
+    <meta charset=utf-8>
+    <title>Аутентификация</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.1/jquery.min.js"></script>
+</head>
+
+<body>
+    <script type="text/javascript">
+        fetch('/_internal_/api/auth', {
+            method: 'POST',
+            mode: 'cors',
+            cache: 'no-cache',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            redirect: 'follow',
+            referrerPolicy: 'no-referrer',
+            body: JSON.stringify({ initData: window.Telegram.WebApp.initData })
+        })
+            .then((response) => {
+                if (response.status == 200) {
+                    setTimeout(() => {
+                        console.log('Success auth.. reloading')
+                        window.location.reload() }, 500)
+                } else if (response.status == 403) {
+                    console.log('Нет доступа, авторизуйтесь в боте.')
+                } else {
+                    console.log(`Не удалось авторизоваться. Обновите страницу. ${response.status}s - error`)
+                }
+            })
+            .catch((reason) => {
+                console.log('Не удалось авторизоваться. Обновите страницу. Unknown error.')
+            });
+    </script>
+</body>
+
+</html>
